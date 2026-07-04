@@ -906,6 +906,11 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
 
         {tab === "orders" && (
           <div className="flex-1 overflow-y-auto p-4">
+            {error && (
+              <div className="bg-red-50 border border-red-100 text-red-600 text-xs rounded-lg px-3 py-2 mb-3 flex items-center gap-1">
+                <AlertCircle size={12} /> {error}
+              </div>
+            )}
             <div className="flex justify-between items-center mb-3">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">All Orders</p>
               <button onClick={refreshOrders} className="text-green-700"><RotateCcw size={16} /></button>
@@ -1099,3 +1104,4 @@ export default function App() {
     );
   return null;
 }
+
