@@ -11,7 +11,7 @@ const STORE_AREA = "Deoband, Saharanpur";
 const UPI_ID = "freshkart@upi";
 const STATUS_FLOW = ["Pending", "Packed", "Out for Delivery", "Delivered"];
 const DELIVERY_FEE = 20;
-const FREE_DELIVERY_MIN = 500;
+const DEFAULT_FREE_DELIVERY_MIN = 399;
 
 const SUPABASE_URL = "https://jlawoemqseioorgidzwv.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpsYXdvZW1xc2Vpb29yZ2lkend2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxMDQzNjgsImV4cCI6MjA5ODY4MDM2OH0.hgFiJ7xMv9slLpcWXClHaB8zOppPTcBjOcTh9ULWpZg";
@@ -175,6 +175,27 @@ async function sbUpdateOrderPhone(id, phone, token) {
   return sbPatchOrder(id, { delivery_phone: phone }, token);
 }
 
+async function sbFetchSettings() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/settings?select=*&id=eq.1`, {
+    headers: sbHeaders(),
+  });
+  if (!res.ok) throw new Error("Could not load settings");
+  const rows = await res.json();
+  if (!rows[0]) return { freeDeliveryMin: DEFAULT_FREE_DELIVERY_MIN };
+  return { freeDeliveryMin: Number(rows[0].free_delivery_min) };
+}
+
+async function sbUpdateSettings(freeDeliveryMin, token) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/settings?id=eq.1`, {
+    method: "PATCH",
+    headers: { ...sbHeaders(token), "Content-Type": "application/json", Prefer: "return=representation" },
+    body: JSON.stringify({ free_delivery_min: freeDeliveryMin }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Could not update settings");
+  return { freeDeliveryMin: Number(data[0].free_delivery_min) };
+}
+
 async function sbUploadImage(file, token) {
   const ext = file.name.split(".").pop();
   const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
@@ -329,12 +350,6 @@ function RoleSelect({ onSelect }) {
           >
             I'm a Customer
           </button>
-          <button
-            onClick={() => onSelect("admin")}
-            className="w-full bg-white text-green-800 font-semibold py-3.5 rounded-xl border-2 border-green-700 active:bg-green-50 transition-colors"
-          >
-            Store Admin Login
-          </button>
         </div>
       </div>
     </PhoneFrame>
@@ -452,7 +467,7 @@ function AdminLogin({ onLogin, onBack }) {
 
 /* ---------------- CUSTOMER APP ---------------- */
 
-function CustomerApp({ profile, onLogout, products, orders, refreshOrders, placeOrder }) {
+function CustomerApp({ profile, onLogout, products, orders, refreshOrders, placeOrder, freeDeliveryMin }) {
   const [tab, setTab] = useState("home");
   const [category, setCategory] = useState("All");
   const [query, setQuery] = useState("");
@@ -481,7 +496,7 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
 
   const cartCount = cartItems.reduce((s, i) => s + i.qty, 0);
   const cartTotal = cartItems.reduce((s, i) => s + i.qty * i.price, 0);
-  const deliveryFee = cartTotal > 0 && cartTotal < FREE_DELIVERY_MIN ? DELIVERY_FEE : 0;
+  const deliveryFee = cartTotal > 0 && cartTotal < freeDeliveryMin ? DELIVERY_FEE : 0;
   const grandTotal = cartTotal + deliveryFee;
 
   const addToCart = (id, delta) => {
@@ -645,7 +660,7 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
                   )}
                 </div>
                 {deliveryFee > 0 && (
-                  <p className="text-[11px] text-amber-600 mb-2">Add {rupee(FREE_DELIVERY_MIN - cartTotal)} more for free delivery</p>
+                  <p className="text-[11px] text-amber-600 mb-2">Add {rupee(freeDeliveryMin - cartTotal)} more for free delivery</p>
                 )}
                 <div className="flex justify-between text-sm mb-3 border-t border-gray-100 pt-2">
                   <span className="text-gray-500 font-semibold">Total</span>
@@ -939,13 +954,29 @@ function ProductForm({ initial, onSave, onCancel, adminToken }) {
   );
 }
 
-function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onDeleteProduct, refreshOrders, updateOrderStatus, updateOrderLocation, updateOrderPhone, adminToken }) {
+function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onDeleteProduct, refreshOrders, updateOrderStatus, updateOrderLocation, updateOrderPhone, adminToken, freeDeliveryMin, onUpdateFreeDeliveryMin }) {
   const [tab, setTab] = useState("dashboard");
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
   const [phoneDraft, setPhoneDraft] = useState({});
   const [locBusy, setLocBusy] = useState({});
+  const [deliveryDraft, setDeliveryDraft] = useState(String(freeDeliveryMin));
+  const [savingDelivery, setSavingDelivery] = useState(false);
+
+  const saveDeliveryMin = async () => {
+    const value = Number(deliveryDraft);
+    if (!value || value < 0) return setError("Enter a valid amount");
+    setSavingDelivery(true);
+    setError("");
+    try {
+      await onUpdateFreeDeliveryMin(value);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingDelivery(false);
+    }
+  };
 
   const shareLocation = (orderId) => {
     if (!navigator.geolocation) {
@@ -1016,6 +1047,26 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
                 <p className="text-xl font-bold text-amber-600 mt-1">{pendingCount}</p>
                 <p className="text-[11px] text-gray-400">need action</p>
               </div>
+            </div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Store Settings</p>
+            <div className="bg-white border border-gray-100 rounded-xl p-3 mb-4">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Free delivery above (₹)</label>
+              <div className="flex gap-2 mt-1">
+                <input
+                  type="number"
+                  value={deliveryDraft}
+                  onChange={(e) => setDeliveryDraft(e.target.value)}
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none"
+                />
+                <button
+                  disabled={savingDelivery}
+                  onClick={saveDeliveryMin}
+                  className="text-xs font-semibold text-white bg-green-700 disabled:opacity-50 rounded-lg px-4"
+                >
+                  {savingDelivery ? "Saving..." : "Save"}
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">Orders below this amount get a ₹{DELIVERY_FEE} delivery fee.</p>
             </div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent Orders</p>
             <div className="flex flex-col gap-2">
@@ -1187,20 +1238,23 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
 /* ---------------- ROOT ---------------- */
 
 export default function App() {
-  const [screen, setScreen] = useState("role");
+  const isAdminLink = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("admin") === "1";
+  const [screen, setScreen] = useState(isAdminLink ? "adminLogin" : "role");
   const [profile, setProfile] = useState(null);
   const [adminToken, setAdminToken] = useState(null);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [freeDeliveryMin, setFreeDeliveryMin] = useState(DEFAULT_FREE_DELIVERY_MIN);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
   const loadAll = useCallback(async () => {
     setLoadError("");
     try {
-      const [p, o] = await Promise.all([sbFetchProducts(), sbFetchOrders()]);
+      const [p, o, s] = await Promise.all([sbFetchProducts(), sbFetchOrders(), sbFetchSettings()]);
       setProducts(p);
       setOrders(o);
+      setFreeDeliveryMin(s.freeDeliveryMin);
     } catch (e) {
       setLoadError(e.message || "Could not connect to the database");
     }
@@ -1247,6 +1301,11 @@ export default function App() {
     const updated = await sbUpdateOrderPhone(id, phone, adminToken);
     refreshOrders.lastRequestId++;
     setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)));
+  };
+
+  const updateFreeDeliveryMin = async (value) => {
+    const updated = await sbUpdateSettings(value, adminToken);
+    setFreeDeliveryMin(updated.freeDeliveryMin);
   };
 
   const addProduct = async (product) => {
@@ -1307,6 +1366,7 @@ export default function App() {
         orders={orders}
         refreshOrders={refreshOrders}
         placeOrder={placeOrder}
+        freeDeliveryMin={freeDeliveryMin}
       />
     );
   if (screen === "adminApp")
@@ -1323,6 +1383,8 @@ export default function App() {
         updateOrderLocation={updateOrderLocation}
         updateOrderPhone={updateOrderPhone}
         adminToken={adminToken}
+        freeDeliveryMin={freeDeliveryMin}
+        onUpdateFreeDeliveryMin={updateFreeDeliveryMin}
       />
     );
   return null;
