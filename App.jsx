@@ -3,7 +3,7 @@ import {
   ShoppingBasket, Search, Plus, Minus, Trash2, MapPin, Phone, User,
   Package, Truck, CheckCircle2, Clock, ChevronLeft, LayoutDashboard,
   ClipboardList, LogOut, Store, Pencil, X, IndianRupee, Wallet,
-  Smartphone, RotateCcw, AlertCircle, MapPinned
+  Smartphone, RotateCcw, AlertCircle, MapPinned, History
 } from "lucide-react";
 
 const STORE_NAME = "FreshKart";
@@ -25,22 +25,7 @@ const CATEGORIES = [
   { id: "Household", emoji: "🧴" },
 ];
 
-const DEFAULT_PRODUCTS = [
-  { id: "p1", name: "Fresh Tomato (1 kg)", category: "Vegetables", price: 40, inStock: true, image: "" },
-  { id: "p2", name: "Onion (1 kg)", category: "Vegetables", price: 35, inStock: true, image: "" },
-  { id: "p3", name: "Potato (1 kg)", category: "Vegetables", price: 28, inStock: true, image: "" },
-  { id: "p4", name: "Toned Milk (500 ml)", category: "Dairy", price: 27, inStock: true, image: "" },
-  { id: "p5", name: "Paneer (200 g)", category: "Dairy", price: 80, inStock: true, image: "" },
-  { id: "p6", name: "Curd (400 g)", category: "Dairy", price: 35, inStock: false, image: "" },
-  { id: "p7", name: "Basmati Rice (1 kg)", category: "Grocery", price: 95, inStock: true, image: "" },
-  { id: "p8", name: "Toor Dal (1 kg)", category: "Grocery", price: 130, inStock: true, image: "" },
-  { id: "p9", name: "Mustard Oil (1 L)", category: "Grocery", price: 165, inStock: true, image: "" },
-  { id: "p10", name: "Parle-G Biscuit", category: "Snacks", price: 10, inStock: true, image: "" },
-  { id: "p11", name: "Aloo Bhujia (200 g)", category: "Snacks", price: 45, inStock: true, image: "" },
-  { id: "p12", name: "Masala Chai (250 g)", category: "Beverages", price: 90, inStock: true, image: "" },
-  { id: "p13", name: "Cold Drink (750 ml)", category: "Beverages", price: 40, inStock: true, image: "" },
-  { id: "p14", name: "Dish Wash Bar", category: "Household", price: 20, inStock: true, image: "" },
-];
+const UNITS = ["1 kg", "500 g", "250 g", "100 g", "1 L", "500 ml", "250 ml", "1 piece", "1 dozen", "1 packet"];
 
 const catEmoji = (c) => CATEGORIES.find((x) => x.id === c)?.emoji || "🧺";
 function ProductThumb({ product, className }) {
@@ -75,6 +60,7 @@ const productFromDb = (p) => ({
   price: Number(p.price),
   inStock: p.in_stock,
   image: p.image || "",
+  unit: p.unit || "1 kg",
 });
 const productToDb = (p) => ({
   name: p.name,
@@ -82,6 +68,7 @@ const productToDb = (p) => ({
   price: p.price,
   in_stock: p.inStock,
   image: p.image || null,
+  unit: p.unit || "1 kg",
 });
 const orderFromDb = (o) => ({
   id: o.id,
@@ -107,6 +94,30 @@ const orderToDb = (o) => ({
   payment: o.payment,
   status: o.status,
 });
+
+async function sbSignupCustomer(name, phone, password) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/signup_customer`, {
+    method: "POST",
+    headers: { ...sbHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ p_name: name, p_phone: phone, p_password: password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Could not create account");
+  if (!data[0]) throw new Error("Could not create account");
+  return { id: data[0].id, name: data[0].name, phone: data[0].phone };
+}
+
+async function sbLoginCustomer(phone, password) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/login_customer`, {
+    method: "POST",
+    headers: { ...sbHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ p_phone: phone, p_password: password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || "Could not log in");
+  if (!data[0]) throw new Error("Incorrect phone number or password");
+  return { id: data[0].id, name: data[0].name, phone: data[0].phone };
+}
 
 async function sbAdminLogin(email, password) {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
@@ -366,15 +377,37 @@ function RoleSelect({ onSelect }) {
 }
 
 function CustomerLogin({ onLogin, onBack }) {
+  const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const submit = () => {
-    if (!name.trim()) return setError("Please enter your name");
-    if (!/^\d{10}$/.test(phone.trim())) return setError("Enter a valid 10-digit phone number");
+  const submit = async () => {
     setError("");
-    onLogin({ name: name.trim(), phone: phone.trim() });
+    if (!/^\d{10}$/.test(phone.trim())) return setError("Enter a valid 10-digit phone number");
+    if (!password) return setError("Enter your password");
+
+    if (mode === "signup") {
+      if (!name.trim()) return setError("Please enter your name");
+      if (password.length < 4) return setError("Password should be at least 4 characters");
+      if (password !== confirmPassword) return setError("Passwords don't match");
+    }
+
+    setBusy(true);
+    try {
+      const profile =
+        mode === "signup"
+          ? await sbSignupCustomer(name.trim(), phone.trim(), password)
+          : await sbLoginCustomer(phone.trim(), password);
+      onLogin(profile);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -382,22 +415,28 @@ function CustomerLogin({ onLogin, onBack }) {
       <div className="flex-1 flex flex-col bg-white">
         <div className="p-4 flex items-center gap-3 shrink-0">
           <button onClick={onBack} className="text-gray-500"><ChevronLeft size={22} /></button>
-          <h2 className="font-bold text-gray-900">Customer Login</h2>
+          <h2 className="font-bold text-gray-900">{mode === "signup" ? "Create Account" : "Customer Login"}</h2>
         </div>
-        <div className="flex-1 px-6 pt-4">
-          <p className="text-sm text-gray-500 mb-6">Enter your details to start shopping. No password needed.</p>
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Your name</label>
-          <div className="flex items-center border border-gray-200 rounded-xl px-3 py-2.5 mt-1 mb-4">
-            <User size={16} className="text-gray-400 mr-2" />
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Aftab Ahmad"
-              className="flex-1 outline-none text-sm"
-            />
-          </div>
+        <div className="flex-1 px-6 pt-4 overflow-y-auto">
+          <p className="text-sm text-gray-500 mb-6">
+            {mode === "signup" ? "Set up your account with a phone number and password." : "Log in with your phone number and password."}
+          </p>
+          {mode === "signup" && (
+            <>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Your name</label>
+              <div className="flex items-center border border-gray-200 rounded-xl px-3 py-2.5 mt-1 mb-4">
+                <User size={16} className="text-gray-400 mr-2" />
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Aftab Ahmad"
+                  className="flex-1 outline-none text-sm"
+                />
+              </div>
+            </>
+          )}
           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone number</label>
-          <div className="flex items-center border border-gray-200 rounded-xl px-3 py-2.5 mt-1">
+          <div className="flex items-center border border-gray-200 rounded-xl px-3 py-2.5 mt-1 mb-4">
             <Phone size={16} className="text-gray-400 mr-2" />
             <input
               value={phone}
@@ -407,11 +446,45 @@ function CustomerLogin({ onLogin, onBack }) {
               inputMode="numeric"
             />
           </div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Password</label>
+          <div className="flex items-center border border-gray-200 rounded-xl px-3 py-2.5 mt-1 mb-4">
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="flex-1 outline-none text-sm"
+            />
+          </div>
+          {mode === "signup" && (
+            <>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Confirm password</label>
+              <div className="flex items-center border border-gray-200 rounded-xl px-3 py-2.5 mt-1 mb-2">
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="flex-1 outline-none text-sm"
+                />
+              </div>
+            </>
+          )}
           {error && <p className="text-red-500 text-xs mt-3 flex items-center gap-1"><AlertCircle size={12} />{error}</p>}
+          <button
+            onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); }}
+            className="text-xs font-semibold text-green-700 mt-3"
+          >
+            {mode === "signup" ? "Already have an account? Log in" : "New here? Create an account"}
+          </button>
         </div>
         <div className="p-6 shrink-0">
-          <button onClick={submit} className="w-full bg-green-700 text-white font-semibold py-3.5 rounded-xl active:bg-green-800">
-            Continue
+          <button
+            disabled={busy}
+            onClick={submit}
+            className="w-full bg-green-700 disabled:opacity-50 text-white font-semibold py-3.5 rounded-xl active:bg-green-800"
+          >
+            {busy ? "Please wait..." : mode === "signup" ? "Create Account" : "Log In"}
           </button>
         </div>
       </div>
@@ -588,7 +661,7 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
                       <ProductThumb product={p} className="w-full h-full text-3xl" />
                     </div>
                     <p className="text-xs font-semibold text-gray-800 leading-snug line-clamp-2 h-8">{p.name}</p>
-                    <p className="text-sm font-bold text-green-800 mt-1 flex items-center"><IndianRupee size={11} />{p.price}</p>
+                    <p className="text-sm font-bold text-green-800 mt-1 flex items-center"><IndianRupee size={11} />{p.price} <span className="text-[10px] font-normal text-gray-400 ml-1">/ {p.unit}</span></p>
                     {!p.inStock ? (
                       <span className="text-[10px] text-red-500 font-medium mt-1">Out of stock</span>
                     ) : cart[p.id] > 0 ? (
@@ -642,7 +715,7 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
                       </div>
                       <div className="flex-1">
                         <p className="text-sm font-semibold text-gray-800">{i.name}</p>
-                        <p className="text-xs text-gray-500">{rupee(i.price)} x {i.qty}</p>
+                        <p className="text-xs text-gray-500">{rupee(i.price)} / {i.unit} · Qty {i.qty}</p>
                       </div>
                       <div className="flex items-center gap-2 bg-green-700 rounded-lg overflow-hidden">
                         <button onClick={() => addToCart(i.id, -1)} className="text-white px-2 py-1"><Minus size={12} /></button>
@@ -872,7 +945,7 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
 
 function ProductForm({ initial, onSave, onCancel, adminToken }) {
   const [form, setForm] = useState(
-    initial || { name: "", category: "Vegetables", price: "", inStock: true, image: "" }
+    initial || { name: "", category: "Vegetables", price: "", inStock: true, image: "", unit: "1 kg" }
   );
   const [imageFile, setImageFile] = useState(null);
   const [preview, setPreview] = useState(initial?.image || "");
@@ -931,6 +1004,16 @@ function ProductForm({ initial, onSave, onCancel, adminToken }) {
           onChange={(e) => setForm({ ...form, price: e.target.value })}
           className="w-full border border-gray-200 rounded-lg px-3 py-2 mt-1 mb-3 text-sm outline-none"
         />
+        <label className="text-xs font-semibold text-gray-500 uppercase">Unit / Quantity</label>
+        <select
+          value={form.unit}
+          onChange={(e) => setForm({ ...form, unit: e.target.value })}
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 mt-1 mb-3 text-sm outline-none"
+        >
+          {UNITS.map((u) => (
+            <option key={u} value={u}>{u}</option>
+          ))}
+        </select>
         <label className="text-xs font-semibold text-gray-500 uppercase">Photo (optional)</label>
         <div className="flex items-center gap-3 mt-1 mb-3">
           <div className="w-16 h-16 rounded-lg overflow-hidden bg-green-50 flex items-center justify-center text-2xl shrink-0 border border-gray-200">
@@ -974,6 +1057,7 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
   const [savingDelivery, setSavingDelivery] = useState(false);
   const [upiDraft, setUpiDraft] = useState(upiId);
   const [savingUpi, setSavingUpi] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState("today");
 
   const saveDeliveryMin = async () => {
     const value = Number(deliveryDraft);
@@ -1049,6 +1133,16 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
   };
 
   const sortedOrders = [...orders].sort((a, b) => b.createdAt - a.createdAt);
+
+  const historyOrders = sortedOrders.filter((o) => {
+    const now = Date.now();
+    const diffDays = (now - o.createdAt) / (1000 * 60 * 60 * 24);
+    if (historyFilter === "today") return new Date(o.createdAt).toDateString() === today;
+    if (historyFilter === "week") return diffDays <= 7;
+    if (historyFilter === "month") return diffDays <= 30;
+    return true;
+  });
+  const historyTotal = historyOrders.reduce((s, o) => s + o.total, 0);
 
   return (
     <PhoneFrame>
@@ -1148,7 +1242,7 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-gray-800">{p.name}</p>
-                    <p className="text-xs text-gray-500">{p.category} · {rupee(p.price)}</p>
+                    <p className="text-xs text-gray-500">{p.category} · {rupee(p.price)} / {p.unit}</p>
                     {!p.inStock && <span className="text-[10px] text-red-500 font-medium">Out of stock</span>}
                   </div>
                   <button onClick={() => setEditing(p)} className="text-gray-400 p-1"><Pencil size={15} /></button>
@@ -1249,11 +1343,71 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
           </div>
         )}
 
+        {tab === "history" && (
+          <div className="flex-1 overflow-y-auto p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Sales History</p>
+            <div className="flex gap-2 mb-3">
+              {[
+                { id: "today", label: "Today" },
+                { id: "week", label: "This Week" },
+                { id: "month", label: "This Month" },
+                { id: "all", label: "All Time" },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setHistoryFilter(f.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border ${
+                    historyFilter === f.id ? "bg-green-700 text-white border-green-700" : "bg-white text-gray-600 border-gray-200"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <div className="bg-white border border-gray-100 rounded-xl p-3 mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs text-gray-500">Total sales</p>
+                <p className="text-xl font-bold text-green-800 mt-1">{rupee(historyTotal)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-gray-500">Orders</p>
+                <p className="text-xl font-bold text-gray-800 mt-1">{historyOrders.length}</p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              {historyOrders.map((o) => (
+                <div key={o.id} className="bg-white border border-gray-100 rounded-xl p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{o.customerName}</p>
+                      <p className="text-[11px] text-gray-400">
+                        {new Date(o.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                        {" · "}
+                        {new Date(o.createdAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-gray-900">{rupee(o.total)}</p>
+                      <p className="text-[11px] text-gray-400">{o.payment}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between mt-2">
+                    <StatusBadge status={o.status} />
+                    <p className="text-[11px] text-gray-400">#{o.id}</p>
+                  </div>
+                </div>
+              ))}
+              {historyOrders.length === 0 && <p className="text-center text-sm text-gray-400 py-10">No orders in this range</p>}
+            </div>
+          </div>
+        )}
+
         <div className="flex border-t border-gray-100 bg-white shrink-0">
           {[
             { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
             { id: "products", label: "Products", icon: ShoppingBasket },
             { id: "orders", label: "Orders", icon: ClipboardList },
+            { id: "history", label: "History", icon: History },
           ].map((t) => (
             <button
               key={t.id}
@@ -1282,8 +1436,16 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
 
 export default function App() {
   const isAdminLink = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("admin") === "1";
-  const [screen, setScreen] = useState(isAdminLink ? "adminLogin" : "role");
-  const [profile, setProfile] = useState(null);
+  const storedProfile = (() => {
+    try {
+      const raw = typeof window !== "undefined" && localStorage.getItem("freshkart_customer");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const [screen, setScreen] = useState(isAdminLink ? "adminLogin" : storedProfile ? "customerApp" : "role");
+  const [profile, setProfile] = useState(storedProfile);
   const [adminToken, setAdminToken] = useState(null);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -1406,14 +1568,35 @@ export default function App() {
 
   if (screen === "role") return <RoleSelect onSelect={(r) => setScreen(r === "customer" ? "customerLogin" : "adminLogin")} />;
   if (screen === "customerLogin")
-    return <CustomerLogin onBack={() => setScreen("role")} onLogin={(p) => { setProfile(p); setScreen("customerApp"); }} />;
+    return (
+      <CustomerLogin
+        onBack={() => setScreen("role")}
+        onLogin={(p) => {
+          try {
+            localStorage.setItem("freshkart_customer", JSON.stringify(p));
+          } catch {
+            /* ignore storage errors */
+          }
+          setProfile(p);
+          setScreen("customerApp");
+        }}
+      />
+    );
   if (screen === "adminLogin")
     return <AdminLogin onBack={() => setScreen("role")} onLogin={(token) => { setAdminToken(token); setScreen("adminApp"); }} />;
   if (screen === "customerApp")
     return (
       <CustomerApp
         profile={profile}
-        onLogout={() => { setProfile(null); setScreen("role"); }}
+        onLogout={() => {
+          try {
+            localStorage.removeItem("freshkart_customer");
+          } catch {
+            /* ignore storage errors */
+          }
+          setProfile(null);
+          setScreen("role");
+        }}
         products={products}
         orders={orders}
         refreshOrders={refreshOrders}
