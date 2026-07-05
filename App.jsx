@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ShoppingBasket, Search, Plus, Minus, Trash2, MapPin, Phone, User,
   Package, Truck, CheckCircle2, Clock, ChevronLeft, LayoutDashboard,
@@ -1309,13 +1309,16 @@ export default function App() {
     loadAll().finally(() => setLoading(false));
   }, [loadAll]);
 
-  // Tracks the most recent refresh request so that a slow, stale background
-  // fetch can never overwrite state with older data after a newer update.
+  // Tracks the most recent refresh/update request in a ref (not a plain
+  // variable or function property) so the counter survives re-renders and a
+  // slow, stale background fetch can never overwrite state with newer data.
+  const refreshRequestIdRef = useRef(0);
+
   const refreshOrders = async () => {
-    const requestId = ++refreshOrders.lastRequestId;
+    const requestId = ++refreshRequestIdRef.current;
     try {
       const fresh = await sbFetchOrders();
-      if (requestId === refreshOrders.lastRequestId) {
+      if (requestId === refreshRequestIdRef.current) {
         setOrders(fresh);
       }
       // else: a newer refresh/update already completed — discard this stale result
@@ -1323,7 +1326,6 @@ export default function App() {
       /* silent on background refresh */
     }
   };
-  refreshOrders.lastRequestId = 0;
 
   const placeOrder = async (order) => {
     const created = await sbInsertOrder(order);
@@ -1332,19 +1334,19 @@ export default function App() {
 
   const updateOrderStatus = async (id, status) => {
     const updated = await sbUpdateOrderStatus(id, status, adminToken);
-    refreshOrders.lastRequestId++;
+    refreshRequestIdRef.current++;
     setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)));
   };
 
   const updateOrderLocation = async (id, lat, lng) => {
     const updated = await sbUpdateOrderLocation(id, lat, lng, adminToken);
-    refreshOrders.lastRequestId++;
+    refreshRequestIdRef.current++;
     setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)));
   };
 
   const updateOrderPhone = async (id, phone) => {
     const updated = await sbUpdateOrderPhone(id, phone, adminToken);
-    refreshOrders.lastRequestId++;
+    refreshRequestIdRef.current++;
     setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)));
   };
 
