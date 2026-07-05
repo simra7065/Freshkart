@@ -30,7 +30,7 @@ const UNITS = ["1 kg", "500 g", "250 g", "100 g", "1 L", "500 ml", "250 ml", "1 
 const catEmoji = (c) => CATEGORIES.find((x) => x.id === c)?.emoji || "🧺";
 function ProductThumb({ product, className }) {
   if (product?.image) {
-    return <img src={product.image} alt={product.name} className={`object-cover ${className}`} />;
+    return <img src={product.image} alt={product.name} className={`object-contain ${className}`} />;
   }
   return <span className={`flex items-center justify-center ${className}`}>{catEmoji(product?.category)}</span>;
 }
@@ -1017,7 +1017,7 @@ function ProductForm({ initial, onSave, onCancel, adminToken }) {
         <label className="text-xs font-semibold text-gray-500 uppercase">Photo (optional)</label>
         <div className="flex items-center gap-3 mt-1 mb-3">
           <div className="w-16 h-16 rounded-lg overflow-hidden bg-green-50 flex items-center justify-center text-2xl shrink-0 border border-gray-200">
-            {preview ? <img src={preview} alt="" className="w-full h-full object-cover" /> : catEmoji(form.category)}
+            {preview ? <img src={preview} alt="" className="w-full h-full object-contain" /> : catEmoji(form.category)}
           </div>
           <label className="flex-1 text-center text-xs font-semibold text-green-700 border border-green-700 rounded-lg py-2.5 cursor-pointer active:bg-green-50">
             Choose Photo
