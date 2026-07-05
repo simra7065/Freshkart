@@ -10,6 +10,8 @@ const STORE_NAME = "FreshKart";
 const STORE_AREA = "Deoband, Saharanpur";
 const UPI_ID = "freshkart@upi";
 const STATUS_FLOW = ["Pending", "Packed", "Out for Delivery", "Delivered"];
+const DELIVERY_FEE = 20;
+const FREE_DELIVERY_MIN = 500;
 
 const SUPABASE_URL = "https://jlawoemqseioorgidzwv.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpsYXdvZW1xc2Vpb29yZ2lkend2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMxMDQzNjgsImV4cCI6MjA5ODY4MDM2OH0.hgFiJ7xMv9slLpcWXClHaB8zOppPTcBjOcTh9ULWpZg";
@@ -425,6 +427,8 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
 
   const cartCount = cartItems.reduce((s, i) => s + i.qty, 0);
   const cartTotal = cartItems.reduce((s, i) => s + i.qty * i.price, 0);
+  const deliveryFee = cartTotal > 0 && cartTotal < FREE_DELIVERY_MIN ? DELIVERY_FEE : 0;
+  const grandTotal = cartTotal + deliveryFee;
 
   const addToCart = (id, delta) => {
     setCart((c) => {
@@ -451,7 +455,7 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
       customerPhone: profile.phone,
       address: address.trim(),
       items: cartItems.map((i) => ({ id: i.id, name: i.name, price: i.price, qty: i.qty })),
-      total: cartTotal,
+      total: grandTotal,
       payment,
       status: "Pending",
       createdAt: Date.now(),
@@ -536,7 +540,7 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
                 className="mx-4 mb-3 shrink-0 bg-green-700 text-white rounded-xl py-3 px-4 flex items-center justify-between font-semibold text-sm"
               >
                 <span>{cartCount} item{cartCount > 1 ? "s" : ""} added</span>
-                <span className="flex items-center gap-1">View Cart · {rupee(cartTotal)}</span>
+                <span className="flex items-center gap-1">View Cart · {rupee(grandTotal)}</span>
               </button>
             )}
           </>
@@ -572,9 +576,24 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
             </div>
             {cartItems.length > 0 && (
               <div className="p-4 border-t border-gray-100 shrink-0">
-                <div className="flex justify-between text-sm mb-3">
-                  <span className="text-gray-500">Total</span>
-                  <span className="font-bold text-gray-900">{rupee(cartTotal)}</span>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-500">Item total</span>
+                  <span className="text-gray-800">{rupee(cartTotal)}</span>
+                </div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-500">Delivery fee</span>
+                  {deliveryFee === 0 ? (
+                    <span className="text-green-700 font-medium">FREE</span>
+                  ) : (
+                    <span className="text-gray-800">{rupee(deliveryFee)}</span>
+                  )}
+                </div>
+                {deliveryFee > 0 && (
+                  <p className="text-[11px] text-amber-600 mb-2">Add {rupee(FREE_DELIVERY_MIN - cartTotal)} more for free delivery</p>
+                )}
+                <div className="flex justify-between text-sm mb-3 border-t border-gray-100 pt-2">
+                  <span className="text-gray-500 font-semibold">Total</span>
+                  <span className="font-bold text-gray-900">{rupee(grandTotal)}</span>
                 </div>
                 <button
                   onClick={() => setCheckoutStep(true)}
@@ -634,9 +653,13 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
                     <span className="text-gray-800">{rupee(i.price * i.qty)}</span>
                   </div>
                 ))}
+                <div className="flex justify-between text-sm py-0.5 border-t border-gray-100 mt-1 pt-1">
+                  <span className="text-gray-600">Delivery fee</span>
+                  <span className="text-gray-800">{deliveryFee === 0 ? "FREE" : rupee(deliveryFee)}</span>
+                </div>
                 <div className="flex justify-between text-sm font-bold border-t border-gray-100 mt-2 pt-2">
                   <span>Total</span>
-                  <span>{rupee(cartTotal)}</span>
+                  <span>{rupee(grandTotal)}</span>
                 </div>
               </div>
             </div>
@@ -646,7 +669,7 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
                 onClick={submitOrder}
                 className="w-full bg-green-700 disabled:opacity-40 text-white font-semibold py-3 rounded-xl active:bg-green-800"
               >
-                {placing ? "Placing order..." : `Place Order · ${rupee(cartTotal)}`}
+                {placing ? "Placing order..." : `Place Order · ${rupee(grandTotal)}`}
               </button>
             </div>
           </>
