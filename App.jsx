@@ -25,7 +25,7 @@ const CATEGORIES = [
   { id: "Household", emoji: "🧴" },
 ];
 
-const UNITS = ["1 kg", "500 g", "250 g", "100 g", "1 L", "500 ml", "250 ml", "1 piece", "1 dozen", "1 packet"];
+const UNITS = ["1 kg", "500 g", "250 g", "100 g", "1 L", "500 ml", "250 ml", "1 piece", "1 dozen", "1 packet", "Custom"];
 
 const catEmoji = (c) => CATEGORIES.find((x) => x.id === c)?.emoji || "🧺";
 function ProductThumb({ product, className }) {
@@ -1006,14 +1006,28 @@ function ProductForm({ initial, onSave, onCancel, adminToken }) {
         />
         <label className="text-xs font-semibold text-gray-500 uppercase">Unit / Quantity</label>
         <select
-          value={form.unit}
-          onChange={(e) => setForm({ ...form, unit: e.target.value })}
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 mt-1 mb-3 text-sm outline-none"
+          value={UNITS.includes(form.unit) ? form.unit : "Custom"}
+          onChange={(e) => {
+            if (e.target.value === "Custom") {
+              setForm({ ...form, unit: "" });
+            } else {
+              setForm({ ...form, unit: e.target.value });
+            }
+          }}
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 mt-1 mb-2 text-sm outline-none"
         >
           {UNITS.map((u) => (
             <option key={u} value={u}>{u}</option>
           ))}
         </select>
+        {!UNITS.includes(form.unit) && (
+          <input
+            value={form.unit}
+            onChange={(e) => setForm({ ...form, unit: e.target.value })}
+            placeholder="Type your own, e.g. 2 kg, 1 bunch, 6 pieces"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 mb-3 text-sm outline-none"
+          />
+        )}
         <label className="text-xs font-semibold text-gray-500 uppercase">Photo (optional)</label>
         <div className="flex items-center gap-3 mt-1 mb-3">
           <div className="w-16 h-16 rounded-lg overflow-hidden bg-green-50 flex items-center justify-center text-2xl shrink-0 border border-gray-200">
@@ -1035,7 +1049,7 @@ function ProductForm({ initial, onSave, onCancel, adminToken }) {
         </div>
         {error && <p className="text-red-500 text-xs mb-3 flex items-center gap-1"><AlertCircle size={12} />{error}</p>}
         <button
-          disabled={!form.name.trim() || !form.price || saving}
+          disabled={!form.name.trim() || !form.price || !form.unit.trim() || saving}
           onClick={save}
           className="w-full bg-green-700 disabled:opacity-40 text-white font-semibold py-3 rounded-xl"
         >
