@@ -1210,13 +1210,21 @@ export default function App() {
     loadAll().finally(() => setLoading(false));
   }, [loadAll]);
 
+  // Tracks the most recent refresh request so that a slow, stale background
+  // fetch can never overwrite state with older data after a newer update.
   const refreshOrders = async () => {
+    const requestId = ++refreshOrders.lastRequestId;
     try {
-      setOrders(await sbFetchOrders());
+      const fresh = await sbFetchOrders();
+      if (requestId === refreshOrders.lastRequestId) {
+        setOrders(fresh);
+      }
+      // else: a newer refresh/update already completed — discard this stale result
     } catch {
       /* silent on background refresh */
     }
   };
+  refreshOrders.lastRequestId = 0;
 
   const placeOrder = async (order) => {
     const created = await sbInsertOrder(order);
@@ -1225,16 +1233,19 @@ export default function App() {
 
   const updateOrderStatus = async (id, status) => {
     const updated = await sbUpdateOrderStatus(id, status, adminToken);
+    refreshOrders.lastRequestId++;
     setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)));
   };
 
   const updateOrderLocation = async (id, lat, lng) => {
     const updated = await sbUpdateOrderLocation(id, lat, lng, adminToken);
+    refreshOrders.lastRequestId++;
     setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)));
   };
 
   const updateOrderPhone = async (id, phone) => {
     const updated = await sbUpdateOrderPhone(id, phone, adminToken);
+    refreshOrders.lastRequestId++;
     setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)));
   };
 
