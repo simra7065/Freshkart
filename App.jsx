@@ -3,7 +3,7 @@ import {
   ShoppingBasket, Search, Plus, Minus, Trash2, MapPin, Phone, User,
   Package, Truck, CheckCircle2, Clock, ChevronLeft, LayoutDashboard,
   ClipboardList, LogOut, Store, Pencil, X, IndianRupee, Wallet,
-  Smartphone, RotateCcw, AlertCircle
+  Smartphone, RotateCcw, AlertCircle, MapPinned
 } from "lucide-react";
 
 const STORE_NAME = "FreshKart";
@@ -43,7 +43,22 @@ const DEFAULT_PRODUCTS = [
 ];
 
 const catEmoji = (c) => CATEGORIES.find((x) => x.id === c)?.emoji || "🧺";
+function ProductThumb({ product, className }) {
+  if (product?.image) {
+    return <img src={product.image} alt={product.name} className={`object-cover ${className}`} />;
+  }
+  return <span className={`flex items-center justify-center ${className}`}>{catEmoji(product?.category)}</span>;
+}
 const rupee = (n) => `₹${Number(n).toFixed(0)}`;
+function timeAgo(ts) {
+  const diffSec = Math.floor((Date.now() - ts) / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} hr ago`;
+  return `${Math.floor(diffHr / 24)} day(s) ago`;
+}
 const genId = (prefix) => `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
 
 function sbHeaders(token) {
@@ -78,6 +93,10 @@ const orderFromDb = (o) => ({
   payment: o.payment,
   status: o.status,
   createdAt: new Date(o.created_at).getTime(),
+  deliveryLat: o.delivery_lat != null ? Number(o.delivery_lat) : null,
+  deliveryLng: o.delivery_lng != null ? Number(o.delivery_lng) : null,
+  deliveryUpdatedAt: o.delivery_updated_at ? new Date(o.delivery_updated_at).getTime() : null,
+  deliveryPhone: o.delivery_phone || "",
 });
 const orderToDb = (o) => ({
   customer_name: o.customerName,
@@ -129,15 +148,50 @@ async function sbInsertOrder(order) {
   return orderFromDb(data[0]);
 }
 
-async function sbUpdateOrderStatus(id, status, token) {
+async function sbPatchOrder(id, patchDb, token) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/orders?id=eq.${id}`, {
     method: "PATCH",
     headers: { ...sbHeaders(token), "Content-Type": "application/json", Prefer: "return=representation" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(patchDb),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.message || "Could not update order status");
+  if (!res.ok) throw new Error(data.message || "Could not update order");
   return orderFromDb(data[0]);
+}
+
+async function sbUpdateOrderStatus(id, status, token) {
+  return sbPatchOrder(id, { status }, token);
+}
+
+async function sbUpdateOrderLocation(id, lat, lng, token) {
+  return sbPatchOrder(
+    id,
+    { delivery_lat: lat, delivery_lng: lng, delivery_updated_at: new Date().toISOString() },
+    token
+  );
+}
+
+async function sbUpdateOrderPhone(id, phone, token) {
+  return sbPatchOrder(id, { delivery_phone: phone }, token);
+}
+
+async function sbUploadImage(file, token) {
+  const ext = file.name.split(".").pop();
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/product-images/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || "Could not upload image");
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/product-images/${path}`;
 }
 
 async function sbInsertProduct(product, token) {
@@ -506,8 +560,8 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
               <div className="grid grid-cols-2 gap-3">
                 {filtered.map((p) => (
                   <div key={p.id} className="bg-white rounded-xl border border-gray-100 p-2.5 flex flex-col shadow-sm">
-                    <div className="bg-green-50 rounded-lg h-16 flex items-center justify-center text-3xl mb-2">
-                      {catEmoji(p.category)}
+                    <div className="bg-green-50 rounded-lg h-16 flex items-center justify-center text-3xl mb-2 overflow-hidden">
+                      <ProductThumb product={p} className="w-full h-full text-3xl" />
                     </div>
                     <p className="text-xs font-semibold text-gray-800 leading-snug line-clamp-2 h-8">{p.name}</p>
                     <p className="text-sm font-bold text-green-800 mt-1 flex items-center"><IndianRupee size={11} />{p.price}</p>
@@ -559,7 +613,9 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
                 <div className="flex flex-col gap-2">
                   {cartItems.map((i) => (
                     <div key={i.id} className="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3">
-                      <div className="text-2xl">{catEmoji(i.category)}</div>
+                      <div className="w-10 h-10 rounded-lg overflow-hidden bg-green-50 flex items-center justify-center shrink-0">
+                        <ProductThumb product={i} className="w-full h-full text-xl" />
+                      </div>
                       <div className="flex-1">
                         <p className="text-sm font-semibold text-gray-800">{i.name}</p>
                         <p className="text-xs text-gray-500">{rupee(i.price)} x {i.qty}</p>
@@ -703,6 +759,32 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
                         <StatusBadge status={o.status} />
                       </div>
                       <StatusStepper status={o.status} />
+                      {(o.status === "Out for Delivery" || o.status === "Delivered") && (o.deliveryPhone || o.deliveryLat) && (
+                        <div className="mt-3 border-t border-gray-100 pt-2">
+                          {o.deliveryPhone && (
+                            <a
+                              href={`tel:${o.deliveryPhone}`}
+                              className="flex items-center justify-center gap-2 bg-green-50 text-green-800 text-xs font-semibold rounded-lg py-2 mb-2"
+                            >
+                              <Phone size={13} /> Call delivery person · {o.deliveryPhone}
+                            </a>
+                          )}
+                          {o.deliveryLat != null && o.deliveryLng != null && (
+                            <>
+                              <div className="rounded-lg overflow-hidden border border-gray-200 h-36">
+                                <iframe
+                                  title={`delivery-location-${o.id}`}
+                                  className="w-full h-full"
+                                  src={`https://www.openstreetmap.org/export/embed.html?bbox=${o.deliveryLng - 0.01}%2C${o.deliveryLat - 0.01}%2C${o.deliveryLng + 0.01}%2C${o.deliveryLat + 0.01}&layer=mapnik&marker=${o.deliveryLat}%2C${o.deliveryLng}`}
+                                />
+                              </div>
+                              <p className="text-[10px] text-gray-400 mt-1 text-center">
+                                Location shared {timeAgo(o.deliveryUpdatedAt)}
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      )}
                       <button
                         onClick={() => setExpanded(expanded === o.id ? null : o.id)}
                         className="text-xs text-green-700 font-semibold mt-2"
@@ -764,10 +846,37 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
 
 /* ---------------- ADMIN APP ---------------- */
 
-function ProductForm({ initial, onSave, onCancel }) {
+function ProductForm({ initial, onSave, onCancel, adminToken }) {
   const [form, setForm] = useState(
     initial || { name: "", category: "Vegetables", price: "", inStock: true, image: "" }
   );
+  const [imageFile, setImageFile] = useState(null);
+  const [preview, setPreview] = useState(initial?.image || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const pickImage = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    setPreview(URL.createObjectURL(file));
+  };
+
+  const save = async () => {
+    setError("");
+    setSaving(true);
+    try {
+      let image = form.image;
+      if (imageFile) {
+        image = await sbUploadImage(imageFile, adminToken);
+      }
+      await onSave({ ...form, image, price: Number(form.price), id: initial?.id });
+    } catch (e) {
+      setError(e.message);
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">
       <div className="bg-white rounded-t-2xl w-full max-w-sm p-5 max-h-[85%] overflow-y-auto">
@@ -798,14 +907,17 @@ function ProductForm({ initial, onSave, onCancel }) {
           onChange={(e) => setForm({ ...form, price: e.target.value })}
           className="w-full border border-gray-200 rounded-lg px-3 py-2 mt-1 mb-3 text-sm outline-none"
         />
-        <label className="text-xs font-semibold text-gray-500 uppercase">Image URL (optional)</label>
-        <input
-          value={form.image}
-          onChange={(e) => setForm({ ...form, image: e.target.value })}
-          placeholder="Leave blank to use category icon"
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 mt-1 mb-3 text-sm outline-none"
-        />
-        <div className="flex items-center justify-between mb-5">
+        <label className="text-xs font-semibold text-gray-500 uppercase">Photo (optional)</label>
+        <div className="flex items-center gap-3 mt-1 mb-3">
+          <div className="w-16 h-16 rounded-lg overflow-hidden bg-green-50 flex items-center justify-center text-2xl shrink-0 border border-gray-200">
+            {preview ? <img src={preview} alt="" className="w-full h-full object-cover" /> : catEmoji(form.category)}
+          </div>
+          <label className="flex-1 text-center text-xs font-semibold text-green-700 border border-green-700 rounded-lg py-2.5 cursor-pointer active:bg-green-50">
+            Choose Photo
+            <input type="file" accept="image/*" onChange={pickImage} className="hidden" />
+          </label>
+        </div>
+        <div className="flex items-center justify-between mb-4">
           <span className="text-sm font-medium text-gray-700">In stock</span>
           <button
             onClick={() => setForm({ ...form, inStock: !form.inStock })}
@@ -814,23 +926,46 @@ function ProductForm({ initial, onSave, onCancel }) {
             <div className={`w-5 h-5 bg-white rounded-full shadow transform transition-transform ${form.inStock ? "translate-x-5" : "translate-x-0.5"}`} />
           </button>
         </div>
+        {error && <p className="text-red-500 text-xs mb-3 flex items-center gap-1"><AlertCircle size={12} />{error}</p>}
         <button
-          disabled={!form.name.trim() || !form.price}
-          onClick={() => onSave({ ...form, price: Number(form.price), id: initial?.id })}
+          disabled={!form.name.trim() || !form.price || saving}
+          onClick={save}
           className="w-full bg-green-700 disabled:opacity-40 text-white font-semibold py-3 rounded-xl"
         >
-          Save Product
+          {saving ? "Saving..." : "Save Product"}
         </button>
       </div>
     </div>
   );
 }
 
-function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onDeleteProduct, refreshOrders, updateOrderStatus }) {
+function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onDeleteProduct, refreshOrders, updateOrderStatus, updateOrderLocation, updateOrderPhone, adminToken }) {
   const [tab, setTab] = useState("dashboard");
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
+  const [phoneDraft, setPhoneDraft] = useState({});
+  const [locBusy, setLocBusy] = useState({});
+
+  const shareLocation = (orderId) => {
+    if (!navigator.geolocation) {
+      setError("Location isn't supported on this device or browser");
+      return;
+    }
+    setLocBusy((b) => ({ ...b, [orderId]: true }));
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        updateOrderLocation(orderId, pos.coords.latitude, pos.coords.longitude)
+          .catch((e) => setError(e.message))
+          .finally(() => setLocBusy((b) => ({ ...b, [orderId]: false })));
+      },
+      (err) => {
+        setError("Could not get your location: " + err.message);
+        setLocBusy((b) => ({ ...b, [orderId]: false }));
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   const today = new Date().toDateString();
   const todaysOrders = orders.filter((o) => new Date(o.createdAt).toDateString() === today);
@@ -846,6 +981,7 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
       setAdding(false);
     } catch (e) {
       setError(e.message);
+      throw e;
     }
   };
   const deleteProduct = async (id) => {
@@ -913,7 +1049,9 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
             <div className="flex flex-col gap-2">
               {products.map((p) => (
                 <div key={p.id} className="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3">
-                  <div className="text-2xl">{catEmoji(p.category)}</div>
+                  <div className="w-10 h-10 rounded-lg overflow-hidden bg-green-50 flex items-center justify-center shrink-0">
+                    <ProductThumb product={p} className="w-full h-full text-xl" />
+                  </div>
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-gray-800">{p.name}</p>
                     <p className="text-xs text-gray-500">{p.category} · {rupee(p.price)}</p>
@@ -942,6 +1080,8 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
               {sortedOrders.map((o) => {
                 const idx = STATUS_FLOW.indexOf(o.status);
                 const next = STATUS_FLOW[idx + 1];
+                const showDispatchTools = o.status === "Packed" || o.status === "Out for Delivery";
+                const phoneValue = phoneDraft[o.id] !== undefined ? phoneDraft[o.id] : o.deliveryPhone;
                 return (
                   <div key={o.id} className="bg-white border border-gray-100 rounded-xl p-3">
                     <div className="flex justify-between items-start">
@@ -964,6 +1104,41 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
                       <span>{o.payment}</span>
                       <span>{rupee(o.total)}</span>
                     </div>
+                    {showDispatchTools && (
+                      <div className="border-t border-gray-100 mt-2 pt-2">
+                        <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Delivery person's phone</label>
+                        <div className="flex gap-2 mt-1 mb-2">
+                          <input
+                            value={phoneValue || ""}
+                            onChange={(e) => setPhoneDraft((d) => ({ ...d, [o.id]: e.target.value }))}
+                            placeholder="10-digit number"
+                            className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs outline-none"
+                          />
+                          <button
+                            onClick={() =>
+                              updateOrderPhone(o.id, (phoneDraft[o.id] || "").trim())
+                                .then(() => setPhoneDraft((d) => ({ ...d, [o.id]: undefined })))
+                                .catch((e) => setError(e.message))
+                            }
+                            className="text-xs font-semibold text-green-700 border border-green-700 rounded-lg px-3"
+                          >
+                            Save
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => shareLocation(o.id)}
+                          disabled={locBusy[o.id]}
+                          className="w-full flex items-center justify-center gap-1 text-xs font-semibold text-blue-700 border border-blue-700 rounded-lg py-2 disabled:opacity-50"
+                        >
+                          <MapPinned size={13} /> {locBusy[o.id] ? "Getting location..." : "Share My Location"}
+                        </button>
+                        {o.deliveryUpdatedAt && (
+                          <p className="text-[10px] text-gray-400 mt-1 text-center">
+                            Location last shared {timeAgo(o.deliveryUpdatedAt)}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {next && (
                       <button
                         onClick={() => updateOrderStatus(o.id, next).catch((e) => setError(e.message))}
@@ -1002,6 +1177,7 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
           initial={editing}
           onSave={saveProduct}
           onCancel={() => { setAdding(false); setEditing(null); }}
+          adminToken={adminToken}
         />
       )}
     </PhoneFrame>
@@ -1049,6 +1225,16 @@ export default function App() {
 
   const updateOrderStatus = async (id, status) => {
     const updated = await sbUpdateOrderStatus(id, status, adminToken);
+    setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)));
+  };
+
+  const updateOrderLocation = async (id, lat, lng) => {
+    const updated = await sbUpdateOrderLocation(id, lat, lng, adminToken);
+    setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)));
+  };
+
+  const updateOrderPhone = async (id, phone) => {
+    const updated = await sbUpdateOrderPhone(id, phone, adminToken);
     setOrders((prev) => prev.map((o) => (o.id === id ? updated : o)));
   };
 
@@ -1123,6 +1309,9 @@ export default function App() {
         onDeleteProduct={deleteProductRemote}
         refreshOrders={refreshOrders}
         updateOrderStatus={updateOrderStatus}
+        updateOrderLocation={updateOrderLocation}
+        updateOrderPhone={updateOrderPhone}
+        adminToken={adminToken}
       />
     );
   return null;
