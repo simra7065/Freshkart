@@ -8,7 +8,7 @@ import {
 
 const STORE_NAME = "FreshKart";
 const STORE_AREA = "Deoband, Saharanpur";
-const UPI_ID = "freshkart@upi";
+const DEFAULT_UPI_ID = "freshkart@upi";
 const STATUS_FLOW = ["Pending", "Packed", "Out for Delivery", "Delivered"];
 const DELIVERY_FEE = 20;
 const DEFAULT_FREE_DELIVERY_MIN = 399;
@@ -181,19 +181,28 @@ async function sbFetchSettings() {
   });
   if (!res.ok) throw new Error("Could not load settings");
   const rows = await res.json();
-  if (!rows[0]) return { freeDeliveryMin: DEFAULT_FREE_DELIVERY_MIN };
-  return { freeDeliveryMin: Number(rows[0].free_delivery_min) };
+  if (!rows[0]) return { freeDeliveryMin: DEFAULT_FREE_DELIVERY_MIN, upiId: DEFAULT_UPI_ID };
+  return {
+    freeDeliveryMin: Number(rows[0].free_delivery_min),
+    upiId: rows[0].upi_id || DEFAULT_UPI_ID,
+  };
 }
 
-async function sbUpdateSettings(freeDeliveryMin, token) {
+async function sbUpdateSettings(patch, token) {
+  const patchDb = {};
+  if (patch.freeDeliveryMin !== undefined) patchDb.free_delivery_min = patch.freeDeliveryMin;
+  if (patch.upiId !== undefined) patchDb.upi_id = patch.upiId;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/settings?id=eq.1`, {
     method: "PATCH",
     headers: { ...sbHeaders(token), "Content-Type": "application/json", Prefer: "return=representation" },
-    body: JSON.stringify({ free_delivery_min: freeDeliveryMin }),
+    body: JSON.stringify(patchDb),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || "Could not update settings");
-  return { freeDeliveryMin: Number(data[0].free_delivery_min) };
+  return {
+    freeDeliveryMin: Number(data[0].free_delivery_min),
+    upiId: data[0].upi_id || DEFAULT_UPI_ID,
+  };
 }
 
 async function sbUploadImage(file, token) {
@@ -467,7 +476,7 @@ function AdminLogin({ onLogin, onBack }) {
 
 /* ---------------- CUSTOMER APP ---------------- */
 
-function CustomerApp({ profile, onLogout, products, orders, refreshOrders, placeOrder, freeDeliveryMin }) {
+function CustomerApp({ profile, onLogout, products, orders, refreshOrders, placeOrder, freeDeliveryMin, upiId }) {
   const [tab, setTab] = useState("home");
   const [category, setCategory] = useState("All");
   const [query, setQuery] = useState("");
@@ -712,7 +721,7 @@ function CustomerApp({ profile, onLogout, products, orders, refreshOrders, place
                 </button>
                 {payment === "UPI" && (
                   <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 text-xs text-amber-800">
-                    Pay to UPI ID <span className="font-semibold">{UPI_ID}</span> and keep the receipt ready for the delivery person.
+                    Pay to UPI ID <span className="font-semibold">{upiId}</span> and keep the receipt ready for the delivery person.
                   </div>
                 )}
               </div>
@@ -954,7 +963,7 @@ function ProductForm({ initial, onSave, onCancel, adminToken }) {
   );
 }
 
-function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onDeleteProduct, refreshOrders, updateOrderStatus, updateOrderLocation, updateOrderPhone, adminToken, freeDeliveryMin, onUpdateFreeDeliveryMin }) {
+function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onDeleteProduct, refreshOrders, updateOrderStatus, updateOrderLocation, updateOrderPhone, adminToken, freeDeliveryMin, onUpdateFreeDeliveryMin, upiId, onUpdateUpiId }) {
   const [tab, setTab] = useState("dashboard");
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -963,6 +972,8 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
   const [locBusy, setLocBusy] = useState({});
   const [deliveryDraft, setDeliveryDraft] = useState(String(freeDeliveryMin));
   const [savingDelivery, setSavingDelivery] = useState(false);
+  const [upiDraft, setUpiDraft] = useState(upiId);
+  const [savingUpi, setSavingUpi] = useState(false);
 
   const saveDeliveryMin = async () => {
     const value = Number(deliveryDraft);
@@ -975,6 +986,19 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
       setError(e.message);
     } finally {
       setSavingDelivery(false);
+    }
+  };
+
+  const saveUpiId = async () => {
+    if (!upiDraft.trim()) return setError("Enter a valid UPI ID");
+    setSavingUpi(true);
+    setError("");
+    try {
+      await onUpdateUpiId(upiDraft.trim());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSavingUpi(false);
     }
   };
 
@@ -1067,6 +1091,25 @@ function AdminApp({ onLogout, products, orders, onAddProduct, onEditProduct, onD
                 </button>
               </div>
               <p className="text-[11px] text-gray-400 mt-1">Orders below this amount get a ₹{DELIVERY_FEE} delivery fee.</p>
+              <div className="border-t border-gray-100 mt-3 pt-3">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">UPI ID for payments</label>
+                <div className="flex gap-2 mt-1">
+                  <input
+                    value={upiDraft}
+                    onChange={(e) => setUpiDraft(e.target.value)}
+                    placeholder="yourname@upi"
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none"
+                  />
+                  <button
+                    disabled={savingUpi}
+                    onClick={saveUpiId}
+                    className="text-xs font-semibold text-white bg-green-700 disabled:opacity-50 rounded-lg px-4"
+                  >
+                    {savingUpi ? "Saving..." : "Save"}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">Shown to customers who choose "Pay via UPI" at checkout.</p>
+              </div>
             </div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent Orders</p>
             <div className="flex flex-col gap-2">
@@ -1245,6 +1288,7 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [freeDeliveryMin, setFreeDeliveryMin] = useState(DEFAULT_FREE_DELIVERY_MIN);
+  const [upiId, setUpiId] = useState(DEFAULT_UPI_ID);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -1255,6 +1299,7 @@ export default function App() {
       setProducts(p);
       setOrders(o);
       setFreeDeliveryMin(s.freeDeliveryMin);
+      setUpiId(s.upiId);
     } catch (e) {
       setLoadError(e.message || "Could not connect to the database");
     }
@@ -1304,8 +1349,13 @@ export default function App() {
   };
 
   const updateFreeDeliveryMin = async (value) => {
-    const updated = await sbUpdateSettings(value, adminToken);
+    const updated = await sbUpdateSettings({ freeDeliveryMin: value }, adminToken);
     setFreeDeliveryMin(updated.freeDeliveryMin);
+  };
+
+  const updateUpiId = async (value) => {
+    const updated = await sbUpdateSettings({ upiId: value }, adminToken);
+    setUpiId(updated.upiId);
   };
 
   const addProduct = async (product) => {
@@ -1367,6 +1417,7 @@ export default function App() {
         refreshOrders={refreshOrders}
         placeOrder={placeOrder}
         freeDeliveryMin={freeDeliveryMin}
+        upiId={upiId}
       />
     );
   if (screen === "adminApp")
@@ -1385,6 +1436,8 @@ export default function App() {
         adminToken={adminToken}
         freeDeliveryMin={freeDeliveryMin}
         onUpdateFreeDeliveryMin={updateFreeDeliveryMin}
+        upiId={upiId}
+        onUpdateUpiId={updateUpiId}
       />
     );
   return null;
